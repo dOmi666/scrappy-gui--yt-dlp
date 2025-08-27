@@ -34,10 +34,10 @@ sudo apt install python3-tk
 sudo pacman -S tk
 ```
 
-
-
+### TO RUN
+Double click in windows select python\
+or\
 run the script with
-
 
 
 ```bash
@@ -51,6 +51,8 @@ python scrappy_gui.py
 or make a shortcut for your OS (on Linux KDE add an application and write this to program line (make sure that where do you put this little script):
 
 ```"python $HOME/Documents/Scripts/ytdlp-video.py")```
+
+
 
 I suggest that use " " (quotation marks) maybe your location may have a space.
 # CAUTION

@@ -3,16 +3,18 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import platform
 import os
-from os.path import expanduser, dirname, abspath, join
+from os.path import expanduser, join
 
-# Directory where the script is located
-script_dir = dirname(abspath(__file__))
+
 global cookie_source
 cookie_source = "cookies.txt"
 
 # The directory and file name of yt-dlp
-yt_dlp_executable = "/usr/bin/yt-dlp"
-yt_dlp = join(script_dir, yt_dlp_executable)
+if platform.system() == "Windows":
+    yt_dlp = "yt-dlp.exe"
+else:
+    yt_dlp = "/usr/bin/yt-dlp"
+
 
 # User's home directory and download folder
 home = expanduser("~")
@@ -31,9 +33,11 @@ def select_directory():
     global download_folder
     download_folder = filedialog.askdirectory()
     return download_folder
+
+
 # if you using yt-dlp binary app with your package manager (chocolate, snap, flatpak, apt, pacman etc) there is no need to use update button
 def update_ytdlp():
-    command = [yt_dlp, "-U"]
+    command = ["yt-dlp", "-U"]
     messagebox.showinfo("Update", "Checking new version of yt-dlp ..")
     subprocess.run(command, check=True)
 
@@ -111,9 +115,6 @@ def get_single_video_parameters():
         "--sponsorblock-mark", "all",
         "--embed-thumbnail",
         "--embed-metadata",
-        "--embed-subs",
-        "--write-auto-sub",
-        # "--sub-lang", "en.*,tr.*",
         "-f", f"bv[height<{height_limit}][ext=mkv]+ba[ext=m4a]/b[ext=mkv] / bv[height<{height_limit}]+ba/b",
         "-o", "%(channel)s/%(title)s - %(width)s x %(height)sp.%(ext)s",
         "-P", download_folder
@@ -129,9 +130,6 @@ def get_playlist_parameters():
         "--sponsorblock-mark", "all",
         "--embed-thumbnail",
         "--embed-metadata",
-        "--embed-subs",
-        "--write-auto-sub",
-        # "--sub-lang", "en.*,tr.*",
         "-f", f"bv[height<{height_limit}][ext=mkv]+ba[ext=m4a]/b[ext=mkv] / bv[height<{height_limit}]+ba/b",
         "-o", "%(channel)s/%(playlist)s/%(playlist_index)s - %(title)s - %(width)s x %(height)sp.%(ext)s",
         "-P", download_folder
@@ -140,6 +138,7 @@ def get_playlist_parameters():
 # Create the main window
 root = tk.Tk(className="ytdlp-Vids")
 root.title("YT-DLP GUI for Videos")
+root.config(bg="#161822", padx=5, pady=5)
 window_width = 350
 window_height = 380
 root.geometry(f"{window_width}x{window_height}")  # Set window size
@@ -149,7 +148,7 @@ root.resizable(False, False)  # Disable resizing
 if platform.system() == "Windows":
     button_update = tk.Button(
     root, text="↻ Update", command=update_ytdlp, font=("Bahnschrift", 8),
-    bg="#e0e0e0", fg="#2b2b2b", relief=tk.FLAT, padx=2, pady=2
+    bg="#161822", fg="#2b2b2b", relief=tk.FLAT, padx=2, pady=2
 )
     button_update.pack(padx=1,pady=1)
     button_update.place(x=(window_width-75), y=5)
@@ -159,7 +158,7 @@ if platform.system() == "Windows":
 # Clear Button
 clear_button = tk.Button(
     root, text="CLEAR ALL 🧼", command=clear_entry, font=("Bahnschrift", 8),
-    bg="#e0e0e0", fg="#2b2b2b", relief=tk.FLAT, padx=2, pady=2
+    bg="#161822", fg="#2b2b2b", relief=tk.FLAT, padx=2, pady=2
 )
 clear_button.pack(padx=1,pady=1)
 clear_button.place(x=5, y=5)
@@ -183,7 +182,7 @@ entryplaylist.bind("<KP_Enter>", run_download)
 # Quality selection with modern style
 tk.Label(root, text="Select Quality:", font=("Bahnschrift", 10, "bold")).pack(pady=2)
 qualityis = tk.IntVar(value=default_res)
-quality_frame = tk.Frame(root, bg="#f5f5f5")
+quality_frame = tk.Frame(root, bg="#2C3044")
 quality_frame.pack(pady=5)
 
 quality_options = [
