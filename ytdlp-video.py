@@ -22,7 +22,7 @@ class YTDLPGui:
     def setup_initial_config(self):
         """Initialize basic configuration"""
         self.THEME = {
-            "bg": "#202216",
+            "bg": "#1F1622",
             "panel": "#1D202E",
             "text": "#fdfdfd",
             "text2": "#b9c0cc",
