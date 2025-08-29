@@ -6,6 +6,7 @@ import os
 import json
 import threading
 import queue
+import re
 from datetime import datetime
 from os.path import expanduser, join, exists
 from urllib.parse import urlparse
@@ -91,6 +92,7 @@ class YTDLPGui:
         self.height_limit = self.default_quality * 1.25
         self.is_downloading = False
         self.current_download_info = {}
+        self.download_process = None
         
     def setup_threading(self):
         """Setup threading components"""
@@ -101,7 +103,7 @@ class YTDLPGui:
     def setup_gui(self):
         """Setup the main GUI"""
         self.root.title("YT-DLP GUI")
-        self.root.geometry("350x700")
+        self.root.geometry("350x750")
         self.root.resizable(False, False)
         
         # Setup style
@@ -280,26 +282,59 @@ class YTDLPGui:
                  bg=self.THEME["button_bg"], fg=self.THEME["text2"]).pack(side="right")
                  
     def create_progress_section(self):
-        """Create progress section"""
+        """Create enhanced progress section"""
         progress_frame = tk.LabelFrame(self.root, text="Download Progress", bg=self.THEME["bg"], 
                                       fg=self.THEME["text"], font=("Arial", 10, "bold"))
         progress_frame.pack(fill="x", padx=10, pady=5)
         
-        # Progress bar
+        # Main progress bar
         self.progress_bar = ttk.Progressbar(progress_frame, mode="determinate")
         self.progress_bar.pack(fill="x", padx=5, pady=5)
         
-        # Progress info
+        # Progress info grid
         info_frame = tk.Frame(progress_frame, bg=self.THEME["bg"])
         info_frame.pack(fill="x", padx=5, pady=(0, 5))
         
-        self.progress_label = tk.Label(info_frame, text="Ready", bg=self.THEME["bg"], 
-                                     fg=self.THEME["info"], font=("Arial", 9))
-        self.progress_label.pack(side="left")
+        # Left column - Status and current file
+        left_frame = tk.Frame(info_frame, bg=self.THEME["bg"])
+        left_frame.pack(side="left", fill="both", expand=True)
         
-        self.speed_label = tk.Label(info_frame, text="", bg=self.THEME["bg"], 
+        self.progress_label = tk.Label(left_frame, text="Ready", bg=self.THEME["bg"], 
+                                     fg=self.THEME["info"], font=("Arial", 9))
+        self.progress_label.pack(anchor="w")
+        
+        self.current_file_label = tk.Label(left_frame, text="", bg=self.THEME["bg"], 
+                                         fg=self.THEME["text2"], font=("Arial", 8),
+                                         wraplength=250)
+        self.current_file_label.pack(anchor="w")
+        
+        # Right column - Speed and ETA
+        right_frame = tk.Frame(info_frame, bg=self.THEME["bg"])
+        right_frame.pack(side="right", fill="y")
+        
+        self.speed_label = tk.Label(right_frame, text="", bg=self.THEME["bg"], 
                                   fg=self.THEME["muted"], font=("Arial", 8))
-        self.speed_label.pack(side="right")
+        self.speed_label.pack(anchor="e")
+        
+        self.eta_label = tk.Label(right_frame, text="", bg=self.THEME["bg"], 
+                                fg=self.THEME["muted"], font=("Arial", 8))
+        self.eta_label.pack(anchor="e")
+        
+        # Detailed info section (collapsible)
+        detail_frame = tk.Frame(progress_frame, bg=self.THEME["bg"])
+        detail_frame.pack(fill="x", padx=5, pady=(0, 5))
+        
+        # Size info
+        size_frame = tk.Frame(detail_frame, bg=self.THEME["bg"])
+        size_frame.pack(fill="x")
+        
+        self.size_label = tk.Label(size_frame, text="", bg=self.THEME["bg"], 
+                                 fg=self.THEME["text2"], font=("Arial", 8))
+        self.size_label.pack(side="left")
+        
+        self.percent_label = tk.Label(size_frame, text="", bg=self.THEME["bg"], 
+                                    fg=self.THEME["accent"], font=("Arial", 8, "bold"))
+        self.percent_label.pack(side="right")
         
     def create_control_buttons(self):
         """Create control buttons"""
@@ -347,6 +382,81 @@ class YTDLPGui:
         
         # Save settings on close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    # Progress Parsing Functions
+    def parse_yt_dlp_output(self, line):
+        """Parse yt-dlp output line and extract progress information"""
+        line = line.strip()
+        if not line:
+            return None
+            
+        progress_info = {}
+        
+        # Download progress pattern
+        download_pattern = r'\[download\]\s+(\d+\.?\d*)%\s+of\s+([^\s]+)\s+at\s+([^\s]+)\s+ETA\s+([^\s]+)'
+        match = re.search(download_pattern, line)
+        if match:
+            progress_info = {
+                'type': 'progress',
+                'percent': float(match.group(1)),
+                'size': match.group(2),
+                'speed': match.group(3),
+                'eta': match.group(4)
+            }
+            return progress_info
+        
+        # Alternative download progress pattern (simpler)
+        simple_progress_pattern = r'\[download\]\s+(\d+\.?\d*)%'
+        match = re.search(simple_progress_pattern, line)
+        if match:
+            progress_info = {
+                'type': 'progress',
+                'percent': float(match.group(1))
+            }
+            return progress_info
+        
+        # File extraction pattern
+        if '[download] Destination:' in line:
+            filename = line.split('[download] Destination:')[1].strip()
+            progress_info = {
+                'type': 'file_info',
+                'filename': os.path.basename(filename)
+            }
+            return progress_info
+        
+        # Starting download pattern
+        if '[download]' in line and 'Downloading' in line:
+            progress_info = {
+                'type': 'start',
+                'message': line
+            }
+            return progress_info
+            
+        # Finished download pattern
+        if '[download] 100%' in line or 'has already been downloaded' in line:
+            progress_info = {
+                'type': 'complete',
+                'message': line
+            }
+            return progress_info
+            
+        # Error pattern
+        if 'ERROR:' in line:
+            progress_info = {
+                'type': 'error',
+                'message': line
+            }
+            return progress_info
+            
+        # Info pattern
+        if '[info]' in line:
+            progress_info = {
+                'type': 'info',
+                'message': line
+            }
+            return progress_info
+            
+        return None
         
     # Event Handlers
     def on_quality_change(self):
@@ -424,13 +534,12 @@ class YTDLPGui:
     # Download Functions
     def get_download_parameters(self, url):
         """Get yt-dlp parameters based on settings"""
-        params = ["--no-warnings", "--ignore-errors"]
+        params = ["--no-warnings", "--ignore-errors", "--newline"]
         
         # Quality settings
         if self.quality_var.get() != 99999:
             if self.audio_only_var.get():
                 params.extend(["-f", "ba[ext=m4a]"])
-                # params.extend(["-x", "--audio-format", "m4a"])
             else:
                 params.extend(["-f", f"bv[height<{self.height_limit}][ext=mkv]+ba[ext=m4a]/b[ext=mkv]/bv[height<{self.height_limit}]+ba/b"])
         else:
@@ -454,7 +563,6 @@ class YTDLPGui:
         if "playlist" in url.lower() or "list=" in url:
             params.extend(["-o", "%(uploader)s/%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s"])
         else:
-            # params.extend(["-o", "%(uploader)s/%(title)s.%(ext)s"])
             params.extend(["-o", "%(channel)s/%(title)s - %(width)s x %(height)sp.%(ext)s"])
             
         # Download path
@@ -501,21 +609,28 @@ class YTDLPGui:
         self.is_downloading = True
         self.download_btn.config(state="disabled", text="Downloading...")
         self.cancel_btn.config(state="normal")
-        self.progress_bar.config(mode="indeterminate")
-        self.progress_bar.start()
+        self.progress_bar.config(mode="determinate", value=0)
+        
+        # Reset progress display
+        self.current_file_label.config(text="")
+        self.speed_label.config(text="")
+        self.eta_label.config(text="")
+        self.size_label.config(text="")
+        self.percent_label.config(text="")
         
         download_thread = threading.Thread(target=self.download_worker, args=(urls,))
         download_thread.daemon = True
         download_thread.start()
         
     def download_worker(self, urls):
-        """Worker function for downloading"""
+        """Worker function for downloading with real-time progress"""
         try:
             for i, url in enumerate(urls):
                 if not self.is_downloading:  # Check if cancelled
                     break
                     
-                self.progress_queue.put(("status", f"Processing URL {i+1}/{len(urls)}: {url[:50]}..."))
+                self.progress_queue.put(("status", f"Processing URL {i+1}/{len(urls)}"))
+                self.progress_queue.put(("current_url", url))
                 
                 # Validate URL again
                 is_valid, _ = self.validate_url(url)
@@ -525,49 +640,80 @@ class YTDLPGui:
                     
                 # Get parameters and build command
                 params = self.get_download_parameters(url)
-                command = [self.yt_dlp, url] + params
+                command = [self.yt_dlp] + params + [url]
                 
-                # Execute download
+                # Execute download with real-time output
                 try:
-                    result = subprocess.run(
-                        command, 
-                        capture_output=True, 
-                        text=True, 
-                        check=True,
-                        encoding='utf-8'
+                    process = subprocess.Popen(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        universal_newlines=True,
+                        bufsize=1
                     )
                     
-                    # Parse output for progress (basic implementation)
-                    self.progress_queue.put(("success", f"Downloaded: {url}"))
+                    self.download_process = process
                     
-                    # Add to history
-                    self.download_history.append({
-                        "url": url,
-                        "timestamp": datetime.now().isoformat(),
-                        "status": "success"
-                    })
+                    # Read output line by line
+                    for line in iter(process.stdout.readline, ''):
+                        if not self.is_downloading:  # Check if cancelled
+                            process.terminate()
+                            break
+                            
+                        if line:
+                            # Parse the output line
+                            progress_info = self.parse_yt_dlp_output(line)
+                            if progress_info:
+                                self.progress_queue.put(("progress_update", progress_info))
+                                
+                    # Wait for process to complete
+                    process.wait()
                     
-                except subprocess.CalledProcessError as e:
-                    error_msg = e.stderr if e.stderr else str(e)
-                    self.progress_queue.put(("error", f"Failed to download {url}: {error_msg}"))
-                    
-                    # Add to history as failed
+                    if process.returncode == 0 and self.is_downloading:
+                        self.progress_queue.put(("success", f"Downloaded: {url}"))
+                        # Add to history
+                        self.download_history.append({
+                            "url": url,
+                            "timestamp": datetime.now().isoformat(),
+                            "status": "success"
+                        })
+                    elif self.is_downloading:  # Failed but not cancelled
+                        self.progress_queue.put(("error", f"Failed to download: {url}"))
+                        self.download_history.append({
+                            "url": url,
+                            "timestamp": datetime.now().isoformat(),
+                            "status": "failed"
+                        })
+                        
+                except Exception as e:
+                    self.progress_queue.put(("error", f"Error downloading {url}: {str(e)}"))
                     self.download_history.append({
                         "url": url,
                         "timestamp": datetime.now().isoformat(),
                         "status": "failed",
-                        "error": error_msg
+                        "error": str(e)
                     })
                     
         except Exception as e:
             self.progress_queue.put(("error", f"Unexpected error: {str(e)}"))
         finally:
+            self.download_process = None
             self.progress_queue.put(("complete", "Download process completed"))
             
     def cancel_download(self):
         """Cancel current download"""
         if self.is_downloading:
             self.is_downloading = False
+            if self.download_process:
+                try:
+                    self.download_process.terminate()
+                    self.download_process.wait(timeout=5)
+                except:
+                    try:
+                        self.download_process.kill()
+                    except:
+                        pass
             self.progress_queue.put(("cancelled", "Download cancelled by user"))
             
     def process_progress_queue(self):
@@ -578,6 +724,10 @@ class YTDLPGui:
                 
                 if message_type == "status":
                     self.set_status(message, "info")
+                elif message_type == "current_url":
+                    self.current_file_label.config(text=f"URL: {message[:60]}...")
+                elif message_type == "progress_update":
+                    self.update_progress_display(message)
                 elif message_type == "success":
                     self.set_status(message, "ok")
                 elif message_type == "error":
@@ -595,13 +745,56 @@ class YTDLPGui:
         finally:
             self.root.after(100, self.process_progress_queue)
             
+    def update_progress_display(self, progress_info):
+        """Update the progress display with parsed information"""
+        if progress_info['type'] == 'progress':
+            percent = progress_info.get('percent', 0)
+            self.progress_bar.config(value=percent)
+            self.percent_label.config(text=f"{percent:.1f}%")
+            
+            if 'speed' in progress_info:
+                self.speed_label.config(text=f" {progress_info['speed']}")
+            if 'eta' in progress_info:
+                self.eta_label.config(text=f"ETA: {progress_info['eta']}")
+            if 'size' in progress_info:
+                self.size_label.config(text=f"Size: {progress_info['size']}")
+                
+        elif progress_info['type'] == 'file_info':
+            filename = progress_info.get('filename', '')
+            self.current_file_label.config(text=f"File: {filename[:50]}...")
+            
+        elif progress_info['type'] == 'start':
+            self.progress_label.config(text="Starting download...", fg=self.THEME["info"])
+            self.progress_bar.config(value=0)
+            
+        elif progress_info['type'] == 'complete':
+            self.progress_label.config(text="Download completed", fg=self.THEME["ok"])
+            self.progress_bar.config(value=100)
+            self.percent_label.config(text="100%")
+            
+        elif progress_info['type'] == 'error':
+            self.progress_label.config(text="Error occurred", fg=self.THEME["err"])
+            
+        elif progress_info['type'] == 'info':
+            # Extract useful info messages
+            message = progress_info.get('message', '')
+            if 'Downloading' in message:
+                self.progress_label.config(text="Downloading...", fg=self.THEME["info"])
+                
     def reset_download_ui(self):
         """Reset UI after download completion/cancellation"""
         self.is_downloading = False
         self.download_btn.config(state="normal", text="🚀 Start Download")
         self.cancel_btn.config(state="disabled")
-        self.progress_bar.stop()
-        self.progress_bar.config(mode="determinate", value=0)
+        self.progress_bar.config(value=0)
+        
+        # Clear progress info if cancelled
+        if not self.is_downloading:
+            self.current_file_label.config(text="")
+            self.speed_label.config(text="")
+            self.eta_label.config(text="")
+            self.size_label.config(text="")
+            self.percent_label.config(text="")
         
     def show_completion_dialog(self):
         """Show completion dialog with options"""
@@ -618,7 +811,8 @@ class YTDLPGui:
         """Update status label"""
         color = self.THEME.get(level, self.THEME["info"])
         self.status_label.config(text=text, foreground=color)
-        self.progress_label.config(text=text, foreground=color)
+        if level != "info":  # Don't update progress label for routine info
+            self.progress_label.config(text=text, foreground=color)
         
     def clear_all(self):
         """Clear all input fields"""
